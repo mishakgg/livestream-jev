@@ -110,6 +110,141 @@ export async function emitUpdate(
   return seq;
 }
 
+export interface SimulatedEffectInput {
+  workspaceId: string;
+  channelId: string;
+  intentId: string;
+  operationKey: string;
+  requestFingerprint: string;
+  action: string;
+  targetMessageId: string | null;
+  targetUserId: string;
+  durationSeconds: number | null;
+  effect: string;
+}
+
+export interface SimulatedEffectRow extends SimulatedEffectInput {
+  id: string;
+  appliedAt: Date;
+}
+
+/**
+ * Persist one simulated platform-side effect. Idempotent per intent: an
+ * intent executes at most once, so a repeated insert is a no-op returning
+ * the existing row. This is the simulated platform's state, not our receipt.
+ */
+export async function recordSimulatedEffect(
+  client: PoolClient,
+  input: SimulatedEffectInput
+): Promise<SimulatedEffectRow> {
+  const { rows } = await client.query<{
+    id: string;
+    applied_at: Date;
+  }>(
+    `INSERT INTO simulated_effects(
+       workspace_id, channel_id, intent_id, operation_key, request_fingerprint,
+       action, target_message_id, target_user_id, duration_seconds, effect
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (intent_id) DO NOTHING
+     RETURNING id, applied_at`,
+    [
+      input.workspaceId,
+      input.channelId,
+      input.intentId,
+      input.operationKey,
+      input.requestFingerprint,
+      input.action,
+      input.targetMessageId,
+      input.targetUserId,
+      input.durationSeconds,
+      input.effect,
+    ]
+  );
+  const created = rows[0];
+  if (created) return { ...input, id: created.id, appliedAt: created.applied_at };
+  const existing = await client.query<{ id: string; applied_at: Date }>(
+    "SELECT id, applied_at FROM simulated_effects WHERE intent_id = $1",
+    [input.intentId]
+  );
+  const row = existing.rows[0];
+  if (!row) throw new Error("simulated_effects row missing after idempotent insert");
+  return { ...input, id: row.id, appliedAt: row.applied_at };
+}
+
+/**
+ * Find the persisted effect for an exact operation. Every bound field must
+ * match — workspace, channel, intent, operation key, request fingerprint,
+ * action, and targets. Anything else fails closed (null): a foreign or
+ * mismatched row is never evidence for this operation.
+ */
+export async function findSimulatedEffect(
+  client: PoolClient,
+  query: {
+    workspaceId: string;
+    channelId: string;
+    intentId: string;
+    operationKey: string;
+    requestFingerprint: string;
+    action: string;
+    targetMessageId: string | null;
+    targetUserId: string;
+    durationSeconds: number | null;
+  }
+): Promise<SimulatedEffectRow | null> {
+  const { rows } = await client.query<{
+    id: string;
+    workspace_id: string;
+    channel_id: string;
+    intent_id: string;
+    operation_key: string;
+    request_fingerprint: string;
+    action: string;
+    target_message_id: string | null;
+    target_user_id: string;
+    duration_seconds: number | null;
+    effect: string;
+    applied_at: Date;
+  }>(
+    `SELECT * FROM simulated_effects
+     WHERE intent_id = $1
+       AND workspace_id = $2
+       AND channel_id = $3
+       AND operation_key = $4
+       AND request_fingerprint = $5
+       AND action = $6
+       AND target_message_id IS NOT DISTINCT FROM $7
+       AND target_user_id = $8
+       AND duration_seconds IS NOT DISTINCT FROM $9`,
+    [
+      query.intentId,
+      query.workspaceId,
+      query.channelId,
+      query.operationKey,
+      query.requestFingerprint,
+      query.action,
+      query.targetMessageId,
+      query.targetUserId,
+      query.durationSeconds,
+    ]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    workspaceId: row.workspace_id,
+    channelId: row.channel_id,
+    intentId: row.intent_id,
+    operationKey: row.operation_key,
+    requestFingerprint: row.request_fingerprint,
+    action: row.action,
+    targetMessageId: row.target_message_id,
+    targetUserId: row.target_user_id,
+    durationSeconds: row.duration_seconds,
+    effect: row.effect,
+    id: row.id,
+    appliedAt: row.applied_at,
+  };
+}
+
 export async function recordAudit(
   client: PoolClient,
   row: {

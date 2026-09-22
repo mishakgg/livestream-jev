@@ -52,11 +52,14 @@ describe("SimulationExecutor", () => {
     expect(res.outcome).toBe("unknown");
     expect(res.applied).toBeNull();
   });
-  it("reconciles deterministically without submitting", async () => {
+  it("is a pure scenario oracle: reconcile-from-evidence lives in the pipeline, not here", async () => {
     const ex = new SimulationExecutor();
-    expect((await ex.reconcile({ targetMessageId: "msg-unknown-resolve-1", targetUserId: "u" })).applied).toBe(true);
-    expect((await ex.reconcile({ targetMessageId: "msg-unknown-absent-1", targetUserId: "u" })).applied).toBe(false);
-    expect((await ex.reconcile({ targetMessageId: "msg-unknown-001", targetUserId: "u" })).applied).toBeNull();
-    expect(ex.callCount).toBe(0);
+    // No reconcile method: recovery/reconciliation read the durable
+    // simulated_effects ledger via findSimulatedEffect, never the oracle.
+    expect("reconcile" in ex).toBe(false);
+    const res = await ex.execute({ ...call, targetMessageId: "msg-unknown-001" });
+    expect(res.outcome).toBe("unknown");
+    expect(res.applied).toBeNull();
+    expect(ex.callCount).toBe(1);
   });
 });

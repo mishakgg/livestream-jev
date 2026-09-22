@@ -58,7 +58,7 @@ export async function truncateAndSeed(): Promise<void> {
     await client.query(
       `TRUNCATE workspaces, users, memberships, demo_sessions, chat_events, deliveries,
         duplicate_deliveries, outbox, incidents, incident_events, policy_versions, action_intents,
-        action_attempts, audit_events, workspace_seq, workspace_updates CASCADE`
+        action_attempts, simulated_effects, audit_events, workspace_seq, workspace_updates CASCADE`
     );
     for (const [id, name, channel] of [
       ["demo-alpha", "Demo Alpha (synthetic)", "channel-alpha"],
@@ -158,17 +158,43 @@ export async function processOutbox(): Promise<{ processed: number; duplicates: 
 /** Run simulated dispatch for a queued intent with a fresh executor. */
 export async function runDispatch(
   intentId: string,
-  executor?: SimulationExecutor
+  executor?: SimulationExecutor,
+  hooks?: import("../../apps/worker/src/pipeline.js").DispatchHooks,
+  useClient?: import("pg").PoolClient
 ): Promise<{ status: string; state: string; executor: SimulationExecutor }> {
   const ex = executor ?? new SimulationExecutor();
+  if (useClient) {
+    const out = await dispatchAction(useClient, intentId, ex, hooks);
+    return { ...out, executor: ex };
+  }
   const pool = getPool();
   const client = await pool.connect();
   try {
-    const out = await dispatchAction(client, intentId, ex);
+    const out = await dispatchAction(client, intentId, ex, hooks);
     return { ...out, executor: ex };
   } finally {
     client.release();
   }
+}
+
+/** Deterministic in-process barrier: `await entered`, then `release()`. */
+export function makeGate(): { entered: Promise<void>; release: () => void; enter: () => Promise<void> } {
+  let signalEntered!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((r) => {
+    signalEntered = r;
+  });
+  const proceed = new Promise<void>((r) => {
+    release = r;
+  });
+  return {
+    entered,
+    release,
+    enter: async () => {
+      signalEntered();
+      await proceed;
+    },
+  };
 }
 
 export async function setMode(workspaceId: string, token: string, mode: "preview" | "assist"): Promise<void> {

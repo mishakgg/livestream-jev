@@ -22,7 +22,7 @@ async function globalSetup(): Promise<void> {
     await client.query(
       `TRUNCATE workspaces, users, memberships, demo_sessions, chat_events, deliveries,
         duplicate_deliveries, outbox, incidents, incident_events, policy_versions, action_intents,
-        action_attempts, audit_events, workspace_seq, workspace_updates CASCADE`
+        action_attempts, simulated_effects, audit_events, workspace_seq, workspace_updates CASCADE`
     );
   } finally {
     await client.end();

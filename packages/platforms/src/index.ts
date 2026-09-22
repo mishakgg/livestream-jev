@@ -90,15 +90,28 @@ export class NullWriteAdapter {
 
 // ---------------------------------------------------------------------------
 // SimulationExecutor: the ONLY executor in M0. It performs no network calls
-// and touches no platform. Outcomes are deterministic:
-//   - target message/user id containing "unknown"  -> outcome "unknown"
-//     (simulates an ambiguous post-submission failure for reconciliation tests)
-//   - otherwise                                   -> outcome "succeeded"
+// and touches no platform. It is a pure scenario oracle; scenario selection
+// is deterministic:
+//   - target message/user id containing "unknown"  -> "unknown" scenario
+//     (simulates an ambiguous post-submission failure; persists no effect)
+//   - otherwise                                   -> success scenario
 // Every invocation is recorded in the in-memory call log (tests assert Preview
-// never reaches it) and callers persist attempts to the simulation ledger.
+// never reaches it). The pipeline persists the simulated platform-side effect
+// to simulated_effects in its own transaction, and recovery trusts only that
+// persisted evidence — never the oracle's claim and never the marker.
 // ---------------------------------------------------------------------------
 
 export type SimulatedOutcome = "succeeded" | "unknown";
+
+/**
+ * Dispatch window for the simulated submit protocol. A `submitting` intent
+ * whose admitted attempt stalls mid-flight could persist its effect late, so
+ * reconcile only declares `refused` (no durable effect) after this many
+ * seconds past intent creation. Attempts complete in milliseconds; the window
+ * bounds pathological stalls, and the effect lookup itself stays
+ * authoritative: an effect found at any time reconciles to success.
+ */
+export const UNKNOWN_OUTCOME_CUTOFF_SECONDS = 60;
 
 export interface SimulationCall {
   operationKey: string;
@@ -111,7 +124,11 @@ export interface SimulationCall {
 
 export interface SimulationResult {
   outcome: SimulatedOutcome;
-  /** Ledger evidence: what the (fake) platform state shows afterwards. */
+  /**
+   * Claimed by the scenario oracle only. A `true` value here is NOT proof of
+   * application: the pipeline must persist a simulated_effects row first, and
+   * recovery/reconciliation trust only that row. See findSimulatedEffect.
+   */
   applied: boolean | null;
   detail: string;
 }
@@ -132,44 +149,31 @@ export class SimulationExecutor {
     this.calls = [];
   }
 
+  /**
+   * Pure scenario oracle: selects the synthetic outcome for this invocation
+   * and records the call (Preview zero-write tests assert on this log). The
+   * target marker selects a failure scenario; it never proves that an action
+   * happened. Persisting the simulated platform-side effect is the
+   * pipeline's job, in its own transaction, so crash windows stay honest.
+   */
   async execute(call: Omit<SimulationCall, "at">): Promise<SimulationResult> {
     const entry: SimulationCall = { ...call, at: new Date().toISOString() };
     this.calls.push(entry);
     const marker = `${call.targetMessageId ?? ""} ${call.targetUserId}`;
     if (marker.includes("unknown")) {
-      // Ambiguous: the request may or may not have applied. Callers must
-      // reconcile via the ledger, never blindly retry.
+      // Ambiguous scenario: the simulated platform call reports an ambiguous
+      // result and persists no effect. Recovery must preserve unknown.
       return {
         outcome: "unknown",
         applied: null,
         detail:
-          "SIMULATED ambiguous result: the request may or may not have applied. Reconcile before any retry. Not a live action.",
+          "SIMULATED ambiguous result: no simulated effect was recorded. Reconcile from evidence before any retry. Not a live action.",
       };
     }
     return {
       outcome: "succeeded",
       applied: true,
-      detail: "SIMULATED success recorded in the simulation ledger only. Not a live platform action.",
+      detail: "SIMULATED success scenario: the effect row is persisted separately as evidence. Not a live platform action.",
     };
-  }
-
-  /** Ledger reconciliation for unknown outcomes: deterministic re-read. */
-  async reconcile(call: { targetMessageId: string | null; targetUserId: string }): Promise<{
-    applied: boolean | null;
-    detail: string;
-  }> {
-    const marker = `${call.targetMessageId ?? ""} ${call.targetUserId}`;
-    if (marker.includes("unknown")) {
-      // Some unknowns stay unknown (still ambiguous); others resolve. The
-      // suffix decides deterministically so tests cover both branches.
-      if (marker.includes("unknown-resolve")) {
-        return { applied: true, detail: "SIMULATED reconcile: ledger shows the effect applied." };
-      }
-      if (marker.includes("unknown-absent")) {
-        return { applied: false, detail: "SIMULATED reconcile: ledger shows the effect did not apply." };
-      }
-      return { applied: null, detail: "SIMULATED reconcile: outcome still ambiguous." };
-    }
-    return { applied: true, detail: "SIMULATED reconcile: ledger shows the effect applied." };
   }
 }
