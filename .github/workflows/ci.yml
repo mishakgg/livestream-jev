@@ -2,7 +2,10 @@ name: M0 CI
 
 on:
   push:
-    branches: ["**"]
+    # PR branches are covered by the pull_request event below; without this
+    # filter every push fires two identical runs that report duplicate check
+    # contexts for the same commit and confuse required-status evaluation.
+    branches: [main]
   pull_request:
 
 jobs:
