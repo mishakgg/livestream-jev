@@ -1,5 +1,24 @@
 import type { PoolClient } from "pg";
-import { emitUpdate, recordAudit } from "@livestream/db";
+import { emitUpdate, findSimulatedEffect, recordAudit, recordSimulatedEffect } from "@livestream/db";
+
+// ---------------------------------------------------------------------------
+// Lock order (deadlock avoidance). Two disjoint row-lock families; the
+// families share no SELECT..FOR UPDATE table, so no lock cycle can form:
+//
+//   Authority family: workspaces -> action_intents
+//     Dispatch admission and approval lock the workspace authority row first,
+//     then the intent. Pause/mode/policy endpoints lock the workspace row
+//     only. Reconcile, recovery, and receipt paths lock the intent only.
+//   Evidence family: chat_events -> incidents
+//     processEvent locks one chat event, then at most one incident.
+//     Claim/release/resolve lock one incident only.
+//
+// workspace_seq row updates and all inserts (outbox, attempts, audit,
+// updates, deliveries, effects) are leaves: taken last, never followed by
+// another row lock. Dispatch reads incidents, chat events, and memberships
+// unlocked inside the admission transaction; every admission DECISION (mode,
+// paused, policy/authority versions) comes from the locked workspace row.
+// ---------------------------------------------------------------------------
 import type { PolicyPreset, SignalCategory } from "@livestream/contracts";
 import {
   GROUP_WINDOW_MS,
@@ -130,7 +149,12 @@ export async function processEvent(client: PoolClient, eventId: string): Promise
 
     // Non-message kinds are observations, not reviewable content.
     if (event.kind !== "message") {
-      await client.query("UPDATE chat_events SET processed_time = now(), skipped = TRUE WHERE id = $1", [eventId]);
+      await client.query(
+        `UPDATE chat_events SET processed_time = now(), skipped = TRUE,
+           processing_state = 'skipped', processing_attempts = processing_attempts + 1
+         WHERE id = $1`,
+        [eventId]
+      );
       await client.query("COMMIT");
       return { status: "processed" };
     }
@@ -174,7 +198,9 @@ export async function processEvent(client: PoolClient, eventId: string): Promise
       explanation: signal.explanation,
     };
     await client.query(
-      "UPDATE chat_events SET processed_time = now(), category = $2, evaluation = $3 WHERE id = $1",
+      `UPDATE chat_events SET processed_time = now(), category = $2, evaluation = $3,
+         processing_state = 'classified', processing_attempts = processing_attempts + 1
+       WHERE id = $1`,
       [eventId, signal.category, JSON.stringify(evaluation)]
     );
 
@@ -308,8 +334,10 @@ export async function processEvent(client: PoolClient, eventId: string): Promise
 interface IntentRow {
   id: string;
   workspace_id: string;
+  channel_id: string;
   incident_id: string;
   operation_key: string;
+  request_hash: string;
   action: "delete_message" | "timeout_user" | "ban_user";
   target_message_id: string | null;
   target_user_id: string;
@@ -324,27 +352,46 @@ interface IntentRow {
   created_at: Date;
 }
 
+/**
+ * Deterministic test barriers for dispatch. Production passes no hooks.
+ * Hooks run at exact serialization points so race tests use explicit gates,
+ * never timing-dependent sleeps.
+ */
+export interface DispatchHooks {
+  /** After admission locks are held, before the admission decision is read. */
+  afterAdmissionLocks?: () => Promise<void>;
+  /** After admission commits (submitting), before simulated-effect persistence. */
+  beforeEffectPersist?: () => Promise<void>;
+  /** After the effect is durable, before the receipt is recorded. */
+  afterEffectPersist?: () => Promise<void>;
+}
+
 export async function dispatchAction(
   client: PoolClient,
   intentId: string,
-  executor: SimulationExecutor
+  executor: SimulationExecutor,
+  hooks?: DispatchHooks
 ): Promise<{ status: "done" | "duplicate" | "recovered" | "refused"; state: string }> {
-  // Recovery path: an intent left `submitting` by a crash is reconciled by
-  // re-reading the ledger — never by re-executing.
-  {
-    const probe = await client.query<IntentRow>("SELECT * FROM action_intents WHERE id = $1", [intentId]);
-    const current = probe.rows[0];
-    if (!current) return { status: "duplicate", state: "missing" };
-    if (current.state !== "queued" && current.state !== "submitting") {
-      return { status: "duplicate", state: current.state };
-    }
-    if (current.state === "submitting") {
-      return await recoverSubmitting(client, current, executor);
-    }
+  // Unlocked routing precheck; every decision below is re-verified under locks.
+  // Recovery path: an intent left `submitting` by a crash is reconciled from
+  // durable evidence — never by re-executing.
+  const probe = await client.query<IntentRow>("SELECT * FROM action_intents WHERE id = $1", [intentId]);
+  const probed = probe.rows[0];
+  if (!probed) return { status: "duplicate", state: "missing" };
+  if (probed.state !== "queued" && probed.state !== "submitting") {
+    return { status: "duplicate", state: probed.state };
   }
+  if (probed.state === "submitting") {
+    return await recoverSubmitting(client, probed);
+  }
+  const workspaceId = probed.workspace_id;
 
   let admitted: {
+    intentId: string;
+    workspaceId: string;
+    channelId: string;
     operationKey: string;
+    requestFingerprint: string;
     action: string;
     targetMessageId: string | null;
     targetUserId: string;
@@ -352,6 +399,22 @@ export async function dispatchAction(
   } | null = null;
   await client.query("BEGIN");
   try {
+    // Shared authority fence: lock the workspace row FIRST, exactly like the
+    // pause/mode/policy endpoints. A control change either commits before
+    // this lock is granted (dispatch then sees the new authority and refuses
+    // unadmitted work) or waits until admission decides. Work that crosses to
+    // `submitting` here is in flight and may complete.
+    const ws = await client.query<{
+      mode: string;
+      paused: boolean;
+      policy_version: number;
+      authority_version: number;
+    }>("SELECT mode, paused, policy_version, authority_version FROM workspaces WHERE id = $1 FOR UPDATE", [workspaceId]);
+    const w = ws.rows[0];
+    if (!w) {
+      await client.query("ROLLBACK");
+      return { status: "duplicate", state: "missing" };
+    }
     const locked = await client.query<IntentRow>(
       "SELECT * FROM action_intents WHERE id = $1 FOR UPDATE",
       [intentId]
@@ -361,17 +424,7 @@ export async function dispatchAction(
       await client.query("ROLLBACK");
       return { status: "duplicate", state: intent?.state ?? "missing" };
     }
-    const ws = await client.query<{
-      mode: string;
-      paused: boolean;
-      policy_version: number;
-      authority_version: number;
-    }>("SELECT mode, paused, policy_version, authority_version FROM workspaces WHERE id = $1", [intent.workspace_id]);
-    const w = ws.rows[0];
-    if (!w) {
-      await client.query("ROLLBACK");
-      return { status: "duplicate", state: "missing" };
-    }
+    if (hooks?.afterAdmissionLocks) await hooks.afterAdmissionLocks();
     const member = await client.query<{ user_id: string }>(
       "SELECT user_id FROM memberships WHERE workspace_id = $1 AND user_id = $2",
       [intent.workspace_id, intent.actor_user_id]
@@ -449,7 +502,11 @@ export async function dispatchAction(
     await client.query("UPDATE action_intents SET state = 'submitting', updated_at = now() WHERE id = $1", [intent.id]);
     await client.query("COMMIT");
     admitted = {
+      intentId: intent.id,
+      workspaceId: intent.workspace_id,
+      channelId: intent.channel_id,
       operationKey: intent.operation_key,
+      requestFingerprint: intent.request_hash,
       action: intent.action,
       targetMessageId: intent.target_message_id,
       targetUserId: intent.target_user_id,
@@ -460,10 +517,17 @@ export async function dispatchAction(
     throw err;
   }
 
-  // The simulation executor performs no I/O; invoking it here keeps the
-  // submit-then-record window minimal and crash-safe (see recoverSubmitting).
+  // Submit protocol, in three separately-durable steps so every crash window
+  // stays honest:
+  //   1. admission committed above (intent is `submitting`);
+  //   2. the simulated platform-side effect is persisted on its own;
+  //   3. our receipt (attempt + terminal state) is recorded.
+  // A crash before (2) leaves no effect: recovery reports unknown. A crash
+  // between (2) and (3) leaves an effect without a receipt: recovery reports
+  // succeeded from evidence. The executor itself is a pure scenario oracle.
   const call = admitted;
   if (!call) throw new Error("dispatch admitted no intent");
+  if (hooks?.beforeEffectPersist) await hooks.beforeEffectPersist();
   const executed = await executor.execute({
     operationKey: call.operationKey,
     action: call.action,
@@ -471,6 +535,28 @@ export async function dispatchAction(
     targetUserId: call.targetUserId,
     durationSeconds: call.durationSeconds,
   });
+  if (executed.outcome === "succeeded") {
+    await client.query("BEGIN");
+    try {
+      await recordSimulatedEffect(client, {
+        workspaceId: call.workspaceId,
+        channelId: call.channelId,
+        intentId: call.intentId,
+        operationKey: call.operationKey,
+        requestFingerprint: call.requestFingerprint,
+        action: call.action,
+        targetMessageId: call.targetMessageId,
+        targetUserId: call.targetUserId,
+        durationSeconds: call.durationSeconds,
+        effect: call.action === "timeout_user" ? "timed_out_user" : "deleted_message",
+      });
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    }
+  }
+  if (hooks?.afterEffectPersist) await hooks.afterEffectPersist();
 
   await client.query("BEGIN");
   try {
@@ -485,6 +571,8 @@ export async function dispatchAction(
       return { status: "duplicate", state: intent?.state ?? "missing" };
     }
     const next = executed.outcome === "succeeded" ? "succeeded" : "unknown";
+    // For the success scenario the effect row committed above, so applied=true
+    // below is backed by durable evidence — not by the oracle's claim alone.
     await insertAttempt(client, intent, executed.outcome, executed.applied, executed.detail);
     await client.query(
       `UPDATE action_intents SET state = $2, last_outcome = $3, last_outcome_detail = $4, updated_at = now() WHERE id = $1`,
@@ -510,15 +598,14 @@ export async function dispatchAction(
 
 async function recoverSubmitting(
   client: PoolClient,
-  intent: IntentRow,
-  executor: SimulationExecutor
+  intent: IntentRow
 ): Promise<{ status: "recovered"; state: string }> {
-  // The executor may or may not have run before the crash. Re-read the
-  // deterministic ledger instead of submitting again.
-  const found = await executor.reconcile({
-    targetMessageId: intent.target_message_id,
-    targetUserId: intent.target_user_id,
-  });
+  // The crash may have landed before the effect, between the effect and the
+  // receipt, or during the receipt. Read the persisted effect evidence —
+  // never the target marker, never the oracle — and never re-execute:
+  //   effect row present  -> the effect applied; record the lost receipt.
+  //   effect row absent   -> application is unestablished; preserve unknown.
+  // Recovery intentionally takes no executor: there is nothing to submit.
   await client.query("BEGIN");
   try {
     const locked = await client.query<IntentRow>(
@@ -530,28 +617,44 @@ async function recoverSubmitting(
       await client.query("ROLLBACK");
       return { status: "recovered", state: current?.state ?? "missing" };
     }
-    if (found.applied === null) {
-      await insertAttempt(client, current, "unknown", null, `Recovered after restart; still ambiguous. ${found.detail}`);
+    const effect = await findSimulatedEffect(client, {
+      workspaceId: current.workspace_id,
+      channelId: current.channel_id,
+      intentId: current.id,
+      operationKey: current.operation_key,
+      requestFingerprint: current.request_hash,
+      action: current.action,
+      targetMessageId: current.target_message_id,
+      targetUserId: current.target_user_id,
+      durationSeconds: current.duration_seconds,
+    });
+    if (!effect) {
+      const detail =
+        "SIMULATED recovery: no simulated effect was recorded for this exact operation; outcome stays unknown. Reconcile from evidence; never blindly retry. Not a live action.";
+      await insertAttempt(client, current, "unknown", null, detail);
       await client.query(
         `UPDATE action_intents SET state = 'unknown', last_outcome = 'unknown',
            last_outcome_detail = $2, updated_at = now() WHERE id = $1`,
-        [current.id, found.detail]
+        [current.id, detail]
       );
+      await recordAudit(client, {
+        workspaceId: current.workspace_id,
+        actorUserId: current.actor_user_id,
+        operation: "action.recover",
+        entityType: "action_intent",
+        entityId: current.id,
+        prevState: "submitting",
+        newState: "unknown",
+      });
       await emitUpdate(client, current.workspace_id, "action", current.id);
       await client.query("COMMIT");
       return { status: "recovered", state: "unknown" };
     }
-    const next = found.applied ? "succeeded" : "refused";
-    await insertAttempt(
-      client,
-      current,
-      found.applied ? "succeeded" : "refused",
-      found.applied,
-      `Recovered after restart without re-execution. ${found.detail}`
-    );
+    const detail = `SIMULATED recovery: simulated effect '${effect.effect}' found in durable evidence; receipt recorded without re-execution. Not a live platform action.`;
+    await insertAttempt(client, current, "succeeded", true, detail);
     await client.query(
-      `UPDATE action_intents SET state = $2, last_outcome = $3, last_outcome_detail = $4, updated_at = now() WHERE id = $1`,
-      [current.id, next, found.applied ? "succeeded" : "refused", found.detail]
+      `UPDATE action_intents SET state = 'succeeded', last_outcome = 'succeeded', last_outcome_detail = $2, updated_at = now() WHERE id = $1`,
+      [current.id, detail]
     );
     await recordAudit(client, {
       workspaceId: current.workspace_id,
@@ -560,11 +663,11 @@ async function recoverSubmitting(
       entityType: "action_intent",
       entityId: current.id,
       prevState: "submitting",
-      newState: next,
+      newState: "succeeded",
     });
     await emitUpdate(client, current.workspace_id, "action", current.id);
     await client.query("COMMIT");
-    return { status: "recovered", state: next };
+    return { status: "recovered", state: "succeeded" };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

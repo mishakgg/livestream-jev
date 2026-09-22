@@ -183,16 +183,30 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         received: string;
         evaluated: string;
         skipped: string;
+        classified: string;
+        awaiting: string;
+        failed: string;
         last_processed: string | null;
       }>(
         `SELECT COUNT(*)::text AS received,
                 COUNT(*) FILTER (WHERE processed_time IS NOT NULL)::text AS evaluated,
                 COUNT(*) FILTER (WHERE skipped)::text AS skipped,
+                COUNT(*) FILTER (WHERE processing_state = 'classified')::text AS classified,
+                COUNT(*) FILTER (WHERE processing_state = 'awaiting')::text AS awaiting,
+                COUNT(*) FILTER (WHERE processing_state = 'failed')::text AS failed,
                 MAX(processed_time)::text AS last_processed
          FROM chat_events WHERE workspace_id = $1`,
         [workspaceId]
       );
-      const c = counts.rows[0] ?? { received: "0", evaluated: "0", skipped: "0", last_processed: null };
+      const c = counts.rows[0] ?? {
+        received: "0",
+        evaluated: "0",
+        skipped: "0",
+        classified: "0",
+        awaiting: "0",
+        failed: "0",
+        last_processed: null,
+      };
       const deliveries = await client.query<{ n: string }>(
         "SELECT COUNT(*)::text AS n FROM duplicate_deliveries WHERE workspace_id = $1",
         [workspaceId]
@@ -207,9 +221,25 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       );
       const received = Number(c.received);
       const evaluated = Number(c.evaluated);
+      const classified = Number(c.classified);
+      const awaiting = Number(c.awaiting);
+      const failed = Number(c.failed);
       const dedup = Number(deliveries.rows[0]?.n ?? "0");
       const queueDepth = Number(queue.rows[0]?.n ?? "0");
       const writesDisabled = w.mode === "preview" || w.paused;
+      // Coverage keys on persisted processing state, never on transport
+      // handoff: an outbox row marked delivered (handed to the queue) says
+      // nothing about whether the event was ever classified.
+      const coverage =
+        received === 0
+          ? "Waiting for replay: no events received yet."
+          : failed > 0
+            ? `Attention: ${failed} event(s) failed processing and need review; ${awaiting} awaiting classification.`
+            : awaiting > 0
+              ? `${awaiting} event(s) awaiting classification; queue handoff is not completion.`
+              : queueDepth > 0
+                ? `Processing: ${queueDepth} event(s) handed to the queue, awaiting worker pickup.`
+                : "Up to date: all received events evaluated (fake deterministic classifier).";
       const health: Health = {
         workspaceId,
         mode: w.mode,
@@ -226,15 +256,14 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         deduplicatedDeliveries: Math.max(0, dedup),
         evaluatedEvents: evaluated,
         skippedEvents: Number(c.skipped),
+        classifiedEvents: classified,
+        awaitingProcessing: awaiting,
+        failedEvents: failed,
+        outboxPending: queueDepth,
         openIncidents: Number(open.rows[0]?.n ?? "0"),
         classifier: "fake-deterministic",
         lastProcessedAt: c.last_processed,
-        coverage:
-          received === 0
-            ? "Waiting for replay: no events received yet."
-            : queueDepth > 0
-              ? `Processing: ${queueDepth} event(s) behind.`
-              : "Up to date: all received events evaluated (fake deterministic classifier).",
+        coverage,
       };
       return reply.send(health);
     } finally {

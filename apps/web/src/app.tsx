@@ -404,7 +404,9 @@ function WorkspaceView(props: { session: DemoSession; onLogout: () => void }): J
               <dt>Events</dt>
               <dd>
                 {health.receivedEvents} received · {health.deduplicatedDeliveries} duplicates ·{" "}
-                {health.evaluatedEvents} evaluated · queue {health.queueDepth}
+                {health.classifiedEvents} classified · {health.skippedEvents} skipped ·{" "}
+                {health.awaitingProcessing} awaiting · {health.failedEvents} failed ·{" "}
+                queue handoff {health.outboxPending}
               </dd>
             </div>
             <div>

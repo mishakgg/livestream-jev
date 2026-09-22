@@ -321,6 +321,12 @@ export const HealthSchema = z.object({
   deduplicatedDeliveries: z.number().int().nonnegative(),
   evaluatedEvents: z.number().int().nonnegative(),
   skippedEvents: z.number().int().nonnegative(),
+  // Persisted processing-state breakdown (migration 003). Outbox handoff is
+  // transport, not completion: coverage keys on these, never on queueDepth.
+  classifiedEvents: z.number().int().nonnegative(),
+  awaitingProcessing: z.number().int().nonnegative(),
+  failedEvents: z.number().int().nonnegative(),
+  outboxPending: z.number().int().nonnegative(),
   openIncidents: z.number().int().nonnegative(),
   classifier: z.enum(["fake-deterministic", "unavailable"]),
   lastProcessedAt: z.string().nullable(),
