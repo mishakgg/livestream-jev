@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@livestream/contracts": ["../../packages/contracts/src"],
+      "@livestream/domain": ["../../packages/domain/src"],
+      "@livestream/classifier": ["../../packages/classifier/src"],
+      "@livestream/platforms": ["../../packages/platforms/src"],
+      "@livestream/db": ["../../packages/db/src"]
+    }
+  },
+  "include": ["src"]
+}

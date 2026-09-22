@@ -6,7 +6,25 @@ Working product name for `livestream-jev`. Jev is the TypeSafe AI decision model
 
 ## Status
 
-**Planning baseline — 22 September 2026.** This repository currently contains product and engineering specifications, not a running application. No platform connection, AI accuracy, latency, customer adoption, deployment, or billing capability has been demonstrated. Numeric targets below are acceptance targets or commercial hypotheses, never measured results.
+**M0 implemented on branch `codex/m0-replay-workspace` (base `06cd24b`) — local demo only, not production.**
+
+What works now (tested, see [Testing](#verification)):
+
+- Deterministic synthetic replay through durable intake, deduplication, bounded context, incident grouping, policy evaluation, and persisted action intents — no dashboard fixtures.
+- Usable moderator inbox (stable priority list), evidence detail with bounded context, claim/release/dismiss/resolve workflow, policy preview + versioned save, health/coverage states, and a compact chat-reported stream-problem card.
+- Unmistakable Demo environment with two isolated workspaces (`demo-alpha`, `demo-beta`) and seeded identities.
+- Preview (zero writes, enforced and tested) plus an explicit demo Assist transition enabling human-approved **simulated** delete/timeout actions through a simulation-only executor. Dispatch admission shares one atomic authority fence with pause/mode/policy changes, and success is reported only from durable persisted evidence.
+
+What is simulated (never a live action):
+
+- Classification is a deterministic fake (`fake-deterministic`); it proves pipeline behavior, never model quality.
+- The simulation executor is a pure scenario oracle: it claims outcomes but proves nothing. Only a persisted, exactly-bound `simulated_effects` row counts as evidence of application. Unknown outcomes reconcile from that evidence (success only with a matching row); missing evidence stays unknown regardless of age — age alone never refuses. Never blind retry or target-name matching.
+
+What is blocked / not yet built:
+
+- Real Twitch intake, OAuth, webhooks, and moderation (M1/M2); Jev provider calls; billing; cloud deployment; automatic bans/timeouts; accessibility audit beyond baseline semantics; production auth (cookies/CSRF), TLS, secrets management, and backups.
+
+Numeric targets elsewhere in these docs remain acceptance targets, never measured results.
 
 ## The product
 
@@ -34,6 +52,7 @@ The service requires no streamer-side installation, OBS changes, local model, or
 | [Go to market](docs/go-to-market.md) | Positioning, pilot, pricing hypotheses, and validation |
 | [Sources](docs/sources.md) | Dated primary references and unresolved checks |
 | [Agent kickoff](docs/agent-kickoff.md) | Copyable first implementation assignment |
+| [Demo guide](docs/demo.md) | M0 setup, seed/replay, demo procedure, and teardown |
 | [Contributing](CONTRIBUTING.md) | Change and verification workflow |
 
 ## Implementation direction
@@ -44,6 +63,37 @@ The first implementation milestone is **M0 in the roadmap**, not the whole visio
 
 ## Development
 
-There is no package manifest or executable setup command yet. The first coding agent must add the scaffold, lockfile, migrations, local configuration, test commands, and accurate quick-start instructions. Do not present planned commands as runnable until they exist.
+Prerequisites: Node.js 24 LTS, npm 11, and PostgreSQL 16 (local service or `docker compose up db`). No API keys or platform credentials are needed — or accepted — in M0.
 
-No cloud deployment, live moderation, paid provider usage, or license selection is authorized merely by this planning baseline. Use synthetic data until the platform/provider data-handling gate is approved.
+```powershell
+cp .env.example .env
+npm ci
+docker compose up -d db        # or start your local PostgreSQL 16
+node scripts/db-ensure.mjs     # create DATABASE_URL database if missing
+npm run db:migrate             # apply versioned migrations
+npm run db:seed                # two demo workspaces + test identities
+npm run dev:api                # Fastify API on http://localhost:3001
+npm run dev:worker             # pg-boss outbox dispatcher + pipeline
+npm run dev:web                # React client on http://localhost:5173
+npm run replay:basic           # deterministic synthetic chat for demo-alpha
+```
+
+Then open http://localhost:5173, choose Alice (owner, Alpha), and follow the [demo guide](docs/demo.md). Safe teardown: `docker compose down` (add `-v` to drop demo data too) or `npm run db:reset` for a clean local database.
+
+Pinned releases (see lockfile): TypeScript 5.6, React 18.3, Vite 5.4, Fastify 4.28, pg-boss 10.4, Vitest 2.1, Playwright 1.49, Zod 3.23, PostgreSQL 16.
+
+## Verification
+
+| Command | What it proves |
+| --- | --- |
+| `npm run lint` | ESLint, zero warnings |
+| `npm run typecheck` | Strict `tsc --noEmit` per workspace |
+| `npm run test` | Unit tests (contracts, domain, classifier, adapters) |
+| `npm run test:integration` | Real-PostgreSQL integration: duplicates, authority-fence races (pause/mode/policy vs dispatch), stale approvals, crash-window recovery from durable evidence, unknown/reconcile/refused outcomes, truthful coverage, injection, Preview zero-write |
+| `npm run test:e2e` | Playwright browser journey: replay → grouped incident → claim → simulated action → refresh recovery, plus isolation/escaping checks |
+| `npm run build` | All workspaces compile/bundle |
+| `npm run check:docs` | Markdown links, required scripts, status markers |
+
+CI runs the same gates (unit + integration + e2e with PostgreSQL 16 and Chromium). Record actual commands and results in every PR; see [Contributing](CONTRIBUTING.md).
+
+No cloud deployment, live moderation, paid provider usage, or license selection is authorized merely by this baseline. Use synthetic data until the platform/provider data-handling gate is approved.

@@ -1,0 +1,219 @@
+[
+  {
+    "_note": "SYNTHETIC DEMO DATA — fictional viewers, no real people. Coordinated spam variants (6 accounts, near-identical).",
+    "deliveryId": "d-spam-001",
+    "platformMessageId": "msg-spam-001",
+    "kind": "message",
+    "authorId": "viewer-spam-01",
+    "authorName": "PromoBot1",
+    "text": "FREE NITRO giveaway!! click here",
+    "providerTime": "2026-09-22T18:00:05+00:00"
+  },
+  {
+    "deliveryId": "d-spam-002",
+    "platformMessageId": "msg-spam-002",
+    "kind": "message",
+    "authorId": "viewer-spam-02",
+    "authorName": "PromoBot2",
+    "text": "free nitro giveaway click here!!",
+    "providerTime": "2026-09-22T18:00:11+00:00"
+  },
+  {
+    "deliveryId": "d-spam-003",
+    "platformMessageId": "msg-spam-003",
+    "kind": "message",
+    "authorId": "viewer-spam-03",
+    "authorName": "PromoBot3",
+    "text": "Free Nitro Giveaway... CLICK HERE",
+    "providerTime": "2026-09-22T18:00:18+00:00"
+  },
+  {
+    "deliveryId": "d-spam-004",
+    "platformMessageId": "msg-spam-004",
+    "kind": "message",
+    "authorId": "viewer-spam-04",
+    "authorName": "PromoBot4",
+    "text": "FREE   NITRO   giveaway — click here!!",
+    "providerTime": "2026-09-22T18:00:25+00:00"
+  },
+  {
+    "deliveryId": "d-spam-005",
+    "platformMessageId": "msg-spam-005",
+    "kind": "message",
+    "authorId": "viewer-spam-05",
+    "authorName": "PromoBot5",
+    "text": "free nitro giveaway!! CLICK HERE",
+    "providerTime": "2026-09-22T18:00:33+00:00"
+  },
+  {
+    "deliveryId": "d-spam-006",
+    "platformMessageId": "msg-spam-006",
+    "kind": "message",
+    "authorId": "viewer-spam-06",
+    "authorName": "PromoBot6",
+    "text": "FREE NITRO GIVEAWAY click here.",
+    "providerTime": "2026-09-22T18:00:41+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — channel-appropriate banter: roasting the streamer, reciprocal jokes. Must stay ordinary.",
+    "deliveryId": "d-banter-001",
+    "platformMessageId": "msg-banter-001",
+    "kind": "message",
+    "authorId": "viewer-fan-01",
+    "authorName": "RegularRita",
+    "text": "that aim was absolutely tragic, streamer, my grandma strafes better (love you really)",
+    "providerTime": "2026-09-22T18:01:05+00:00"
+  },
+  {
+    "deliveryId": "d-banter-002",
+    "platformMessageId": "msg-banter-002",
+    "kind": "message",
+    "authorId": "viewer-fan-02",
+    "authorName": "ChillChad",
+    "text": "Rita you whiffed the easy shot last game, glass houses my friend",
+    "providerTime": "2026-09-22T18:01:20+00:00"
+  },
+  {
+    "deliveryId": "d-banter-003",
+    "platformMessageId": "msg-banter-003",
+    "kind": "message",
+    "authorId": "viewer-fan-01",
+    "authorName": "RegularRita",
+    "text": "fair, fair — rematch after this round?",
+    "providerTime": "2026-09-22T18:01:35+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — repeated targeted hostility toward one viewer (3 messages, reply-linked).",
+    "deliveryId": "d-hostile-001",
+    "platformMessageId": "msg-hostile-001",
+    "kind": "message",
+    "authorId": "viewer-mean-01",
+    "authorName": "GrumpyGus",
+    "text": "@NewbieNina you are such an idiot, stop typing",
+    "replyToMessageId": "msg-chat-001",
+    "providerTime": "2026-09-22T18:02:05+00:00"
+  },
+  {
+    "deliveryId": "d-hostile-002",
+    "platformMessageId": "msg-hostile-002",
+    "kind": "message",
+    "authorId": "viewer-mean-01",
+    "authorName": "GrumpyGus",
+    "text": "@NewbieNina nobody wants you here, you trash loser",
+    "replyToMessageId": "msg-chat-001",
+    "providerTime": "2026-09-22T18:02:40+00:00"
+  },
+  {
+    "deliveryId": "d-hostile-003",
+    "platformMessageId": "msg-hostile-003",
+    "kind": "message",
+    "authorId": "viewer-mean-02",
+    "authorName": "SneakySam",
+    "text": "@NewbieNina yeah you are pathetic, leave the chat",
+    "replyToMessageId": "msg-chat-001",
+    "providerTime": "2026-09-22T18:03:15+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — ordinary conversation and the targeted viewer's original message.",
+    "deliveryId": "d-chat-001",
+    "platformMessageId": "msg-chat-001",
+    "kind": "message",
+    "authorId": "viewer-new-01",
+    "authorName": "NewbieNina",
+    "text": "hi everyone! first stream, what game is this?",
+    "providerTime": "2026-09-22T18:01:55+00:00"
+  },
+  {
+    "deliveryId": "d-chat-002",
+    "platformMessageId": "msg-chat-002",
+    "kind": "message",
+    "authorId": "viewer-fan-03",
+    "authorName": "HelpfulHank",
+    "text": "welcome Nina! it's a cozy farming sim, grab a snack and enjoy",
+    "providerTime": "2026-09-22T18:02:10+00:00"
+  },
+  {
+    "deliveryId": "d-chat-003",
+    "platformMessageId": "msg-chat-003",
+    "kind": "message",
+    "authorId": "viewer-fan-02",
+    "authorName": "ChillChad",
+    "text": "that harvest combo was clean, gg",
+    "providerTime": "2026-09-22T18:03:30+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — 6 distinct viewers report an audio problem within 2 minutes.",
+    "deliveryId": "d-audio-001",
+    "platformMessageId": "msg-audio-001",
+    "kind": "message",
+    "authorId": "viewer-fan-01",
+    "authorName": "RegularRita",
+    "text": "uh is there no audio? i cant hear anything",
+    "providerTime": "2026-09-22T18:05:05+00:00"
+  },
+  {
+    "deliveryId": "d-audio-002",
+    "platformMessageId": "msg-audio-002",
+    "kind": "message",
+    "authorId": "viewer-fan-02",
+    "authorName": "ChillChad",
+    "text": "yeah no sound here either, stream muted?",
+    "providerTime": "2026-09-22T18:05:22+00:00"
+  },
+  {
+    "deliveryId": "d-audio-003",
+    "platformMessageId": "msg-audio-003",
+    "kind": "message",
+    "authorId": "viewer-fan-03",
+    "authorName": "HelpfulHank",
+    "text": "audio problem on my end too, sound cut out",
+    "providerTime": "2026-09-22T18:05:40+00:00"
+  },
+  {
+    "deliveryId": "d-audio-004",
+    "platformMessageId": "msg-audio-004",
+    "kind": "message",
+    "authorId": "viewer-fan-04",
+    "authorName": "LurkerLou",
+    "text": "mic is off maybe? can't hear the streamer",
+    "providerTime": "2026-09-22T18:06:02+00:00"
+  },
+  {
+    "deliveryId": "d-audio-005",
+    "platformMessageId": "msg-audio-005",
+    "kind": "message",
+    "authorId": "viewer-fan-05",
+    "authorName": "QuietQuinn",
+    "text": "+1 no audio, video is fine though",
+    "providerTime": "2026-09-22T18:06:20+00:00"
+  },
+  {
+    "deliveryId": "d-audio-006",
+    "platformMessageId": "msg-audio-006",
+    "kind": "message",
+    "authorId": "viewer-new-01",
+    "authorName": "NewbieNina",
+    "text": "audio is gone for me too, anyone else?",
+    "providerTime": "2026-09-22T18:06:45+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — duplicate delivery of msg-spam-001 (same deliveryId must dedup).",
+    "deliveryId": "d-spam-001",
+    "platformMessageId": "msg-spam-001",
+    "kind": "message",
+    "authorId": "viewer-spam-01",
+    "authorName": "PromoBot1",
+    "text": "FREE NITRO giveaway!! click here",
+    "providerTime": "2026-09-22T18:00:05+00:00"
+  },
+  {
+    "_note": "SYNTHETIC — out-of-order arrival (earlier providerTime, delivered late).",
+    "deliveryId": "d-chat-000-late",
+    "platformMessageId": "msg-chat-000",
+    "kind": "message",
+    "authorId": "viewer-fan-04",
+    "authorName": "LurkerLou",
+    "text": "evening all, just got here",
+    "providerTime": "2026-09-22T17:59:50+00:00"
+  }
+]

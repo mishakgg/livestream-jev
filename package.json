@@ -1,0 +1,41 @@
+{
+  "name": "livestream-jev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Livestream Copilot M0: local replay moderation copilot (demo, synthetic data only)",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @livestream/api",
+    "dev:worker": "npm run dev -w @livestream/worker",
+    "dev:web": "npm run dev -w @livestream/web",
+    "db:migrate": "node scripts/db-migrate.mjs up",
+    "db:reset": "node scripts/db-migrate.mjs reset",
+    "db:seed": "node scripts/db-seed.mjs",
+    "replay:basic": "node scripts/replay.mjs fixtures/replay-basic.json",
+    "replay:adversarial": "node scripts/replay.mjs fixtures/replay-adversarial.json",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "test": "npm run test -ws --if-present",
+    "test:integration": "vitest run --config tests/integration/vitest.integration.config.ts",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.mts",
+    "build": "npm run build -ws --if-present",
+    "check:docs": "node scripts/check-docs.mjs",
+    "start:e2e": "node scripts/start-e2e.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "22.10.2",
+    "eslint": "9.17.0",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3",
+    "typescript-eslint": "8.18.2",
+    "vitest": "2.1.9"
+  }
+}

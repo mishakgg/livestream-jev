@@ -1,0 +1,77 @@
+name: M0 CI
+
+on:
+  push:
+    # PR branches are covered by the pull_request event below; without this
+    # filter every push fires two identical runs that report duplicate check
+    # contexts for the same commit and confuse required-status evaluation.
+    branches: [main]
+  pull_request:
+
+jobs:
+  static:
+    name: lint / typecheck / unit / build / docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - run: npm run check:docs
+
+  integration:
+    name: integration (real PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: livestream
+          POSTGRES_PASSWORD: livestream
+          POSTGRES_DB: livestream_m0
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U livestream -d livestream_m0"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://livestream:livestream@localhost:5432/livestream_m0_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+
+  e2e:
+    name: e2e (browser + PostgreSQL + worker)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: livestream
+          POSTGRES_PASSWORD: livestream
+          POSTGRES_DB: livestream_m0
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U livestream -d livestream_m0"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      LIVESTREAM_E2E_DATABASE_URL: postgres://livestream:livestream@localhost:5432/livestream_m0_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

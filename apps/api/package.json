@@ -1,0 +1,25 @@
+{
+  "name": "@livestream/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --watch --tsconfig tsconfig.json src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src --max-warnings=0"
+  },
+  "dependencies": {
+    "@fastify/cors": "9.0.1",
+    "@livestream/classifier": "0.1.0",
+    "@livestream/contracts": "0.1.0",
+    "@livestream/db": "0.1.0",
+    "@livestream/domain": "0.1.0",
+    "@livestream/platforms": "0.1.0",
+    "dotenv": "16.4.5",
+    "fastify": "4.28.1",
+    "pg": "8.13.1"
+  }
+}

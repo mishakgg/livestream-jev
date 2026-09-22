@@ -6,6 +6,8 @@ This is an ordered implementation plan, not a delivery-date promise. The reposit
 
 **First coding-agent assignment. No real platform credentials, provider calls, billing, or cloud deployment.**
 
+**Status: implemented on `codex/m0-replay-workspace` (base `06cd24b`), demo only.** All seven M0 items are built and tested per the [demo guide](demo.md): workspace scaffold with pinned dependencies and lockfile; runtime-validated contracts with two isolated seeded workspaces (demo auth refused in production); deterministic replay + fake classifier through durable intake/outbox, dedup, bounded context, grouping, policy, and action intents; usable inbox/evidence/claim/policy/health/stream-card UI driven by persisted data; Preview zero-write plus explicit Assist transition with human-approved simulated delete/timeout; safe refresh/double-click/duplicate/race/restart/pause/stale/missing-ID/unknown-outcome handling with typed errors; unit + real-PostgreSQL integration + browser tests, docs checker, setup instructions, and CI. Fake classification proves pipeline behavior only — not model quality — and local replay measures no platform latency. M1–M3 remain future work as specified below.
+
 Build a small, working vertical slice rather than scaffolding every future feature:
 
 1. Establish the TypeScript/npm workspace, pinned supported dependencies, React/Vite client, Fastify API, worker, PostgreSQL migrations, and pg-boss job processing described in [architecture](architecture.md). Provide local Docker Compose for dependencies and one documented startup path. Implement only packages needed by this slice.
