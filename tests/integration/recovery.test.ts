@@ -6,6 +6,7 @@ import {
   injectAuthed,
   loadFixture,
   loginAll,
+  makeGate,
   processOutbox,
   replayBatch,
   runDispatch,
@@ -430,14 +431,14 @@ describe("durable simulated evidence and recovery", () => {
     expect(await intentState(intent.id)).toBe("unknown");
   });
 
-  it("reconciliation past the dispatch window without evidence resolves to refused", async () => {
+  it("missing evidence stays unknown regardless of age — age alone never refuses", async () => {
     const { detail } = await spamIncident(ctx.bob.token);
     const target = detail.evidence[5] ?? detail.evidence[0];
     if (!target) throw new Error("no evidence");
-    const { intent } = await queuedDelete(ctx, target.platformMessageId, target.authorId, "rec-cutoff");
+    const { intent } = await queuedDelete(ctx, target.platformMessageId, target.authorId, "rec-aged");
     await setIntentState(intent.id, "unknown");
-    // Age the intent past UNKNOWN_OUTCOME_CUTOFF_SECONDS: no admitted
-    // attempt can still be mid-flight, so "no effect" is definitive.
+    // Age the intent: the effect writer enforces no deadline, so an old
+    // intent with no effect is still "not established" — never refused.
     const pool = getPool();
     const aged = await pool.connect();
     try {
@@ -452,8 +453,86 @@ describe("durable simulated evidence and recovery", () => {
       payload: {},
       token: ctx.bob.token,
     });
-    expect(reconciled.statusCode).toBe(200);
-    expect((reconciled.json() as ActionIntent).state).toBe("refused");
-    expect(await intentState(intent.id)).toBe("refused");
+    expect(reconciled.statusCode).toBe(409);
+    expect((reconciled.json() as { code: string }).code).toBe("outcome_unknown");
+    expect(await intentState(intent.id)).toBe("unknown");
+  });
+
+  it("a late effect from a blocked worker still reconciles after an aged unknown", async () => {
+    const { detail } = await spamIncident(ctx.bob.token);
+    const target = detail.evidence[6] ?? detail.evidence[0];
+    if (!target) throw new Error("no evidence");
+    const { intent } = await queuedDelete(ctx, target.platformMessageId, target.authorId, "rec-latefx");
+    // Age the creation timestamp while the approval itself stays valid
+    // (expires_at untouched): age alone must not decide the outcome.
+    const pool = getPool();
+    const ager = await pool.connect();
+    try {
+      await ager.query("UPDATE action_intents SET created_at = now() - interval '300 seconds' WHERE id = $1", [intent.id]);
+    } finally {
+      ager.release();
+    }
+
+    // Separate connections: the original worker admits and blocks, while
+    // recovery + reconcile run concurrently on another connection.
+    const gate = makeGate();
+    const workerA = new SimulationExecutor();
+    const workerB = new SimulationExecutor();
+    const dispatchConn = await pool.connect();
+    const recoveryConn = await pool.connect();
+    let running: Promise<{ status: string; state: string }> | null = null;
+    try {
+      running = runDispatch(intent.id, workerA, { beforeEffectPersist: gate.enter }, dispatchConn);
+      await gate.entered;
+      expect(await intentState(intent.id)).toBe("submitting");
+      expect(workerA.callCount).toBe(0);
+      expect(await effectCount(intent.id)).toBe(0);
+
+      const recovered = await runDispatch(intent.id, workerB, undefined, recoveryConn);
+      expect(recovered.status).toBe("recovered");
+      expect(recovered.state).toBe("unknown");
+      expect(workerB.callCount).toBe(0);
+      expect(await effectCount(intent.id)).toBe(0);
+
+      // Reconcile while the original worker is still blocked: missing
+      // evidence stays unknown — never refused by age.
+      const first = await injectAuthed({
+        method: "POST",
+        url: `/api/workspaces/demo-alpha/actions/${intent.id}/reconcile`,
+        payload: {},
+        token: ctx.bob.token,
+      });
+      expect(first.statusCode).toBe(409);
+      expect((first.json() as { code: string }).code).toBe("outcome_unknown");
+      expect(await intentState(intent.id)).toBe("unknown");
+
+      // Release the original worker: its single effect becomes durable. The
+      // unknown outcome already stands, so the late receipt bails out.
+      gate.release();
+      const late = await running;
+      expect(late.status).toBe("duplicate");
+      expect(await intentState(intent.id)).toBe("unknown");
+      expect(await effectCount(intent.id)).toBe(1);
+      expect(workerA.callCount).toBe(1);
+
+      // The second reconcile finds that exact effect and confirms success.
+      const second = await injectAuthed({
+        method: "POST",
+        url: `/api/workspaces/demo-alpha/actions/${intent.id}/reconcile`,
+        payload: {},
+        token: ctx.bob.token,
+      });
+      expect(second.statusCode).toBe(200);
+      expect((second.json() as ActionIntent).state).toBe("reconciled_succeeded");
+      expect(await intentState(intent.id)).toBe("reconciled_succeeded");
+      expect(await effectCount(intent.id)).toBe(1);
+      expect(workerA.callCount).toBe(1);
+      expect(workerB.callCount).toBe(0);
+    } finally {
+      gate.release();
+      await running?.catch(() => undefined);
+      dispatchConn.release();
+      recoveryConn.release();
+    }
   });
 });

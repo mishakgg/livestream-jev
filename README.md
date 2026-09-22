@@ -18,7 +18,7 @@ What works now (tested, see [Testing](#verification)):
 What is simulated (never a live action):
 
 - Classification is a deterministic fake (`fake-deterministic`); it proves pipeline behavior, never model quality.
-- The simulation executor is a pure scenario oracle: it claims outcomes but proves nothing. Only a persisted, exactly-bound `simulated_effects` row counts as evidence of application. Unknown outcomes reconcile from that evidence (success only with a matching row; refused only past the dispatch window), never by blind retry or target-name matching.
+- The simulation executor is a pure scenario oracle: it claims outcomes but proves nothing. Only a persisted, exactly-bound `simulated_effects` row counts as evidence of application. Unknown outcomes reconcile from that evidence (success only with a matching row); missing evidence stays unknown regardless of age — age alone never refuses. Never blind retry or target-name matching.
 
 What is blocked / not yet built:
 

@@ -6,7 +6,6 @@ import {
 } from "@livestream/contracts";
 import type { ActionIntent, ActionIntentState } from "@livestream/contracts";
 import { APPROVAL_TTL_MS, canonicalActionRequest, requestHash } from "@livestream/domain";
-import { UNKNOWN_OUTCOME_CUTOFF_SECONDS } from "@livestream/platforms";
 import { requireWorkspaceSession } from "../auth.js";
 import { sendError } from "../errors.js";
 
@@ -492,11 +491,11 @@ export async function actionRoutes(app: FastifyInstance): Promise<void> {
   // (see the submit protocol in apps/worker/src/pipeline.ts). Success is only
   // recorded when a persisted effect matches this intent's exact operation
   // binding, so it can never claim an application that never happened.
-  // Refused is only recorded after the dispatch-window cutoff: an admitted
-  // attempt that stalls mid-flight could persist its effect late, so an
-  // absent effect before the cutoff means "not yet established", not
-  // "refused". Reconcile never submits: a refused outcome needs a new intent
-  // to retry.
+  // There is deliberately NO elapsed-time refusal: the effect writer
+  // enforces no deadline, so a missing effect — however old the intent —
+  // means "not established", never "refused". An admitted attempt that
+  // stalls mid-flight can persist its effect late, and that late effect
+  // still reconciles to success. Reconcile never submits.
   app.post("/api/workspaces/:workspaceId/actions/:id/reconcile", async (req, reply) => {
     const { workspaceId, id } = req.params as { workspaceId: string; id: string };
     const auth = await requireWorkspaceSession(req, workspaceId);
@@ -551,35 +550,20 @@ export async function actionRoutes(app: FastifyInstance): Promise<void> {
           newState: "reconciled_succeeded",
         });
       } else {
-        const cutoff = await client.query<{ past_cutoff: boolean }>(
-          "SELECT (now() - created_at) > ($2 * interval '1 second') AS past_cutoff FROM action_intents WHERE id = $1",
-          [id, UNKNOWN_OUTCOME_CUTOFF_SECONDS]
+        // No effect for the exact binding. Report the intent age as operator
+        // attention only: age alone is not proof of non-application.
+        const age = await client.query<{ age_seconds: number }>(
+          "SELECT EXTRACT(EPOCH FROM (now() - created_at))::integer AS age_seconds FROM action_intents WHERE id = $1",
+          [id]
         );
-        if (!cutoff.rows[0]?.past_cutoff) {
-          await client.query("ROLLBACK");
-          return sendError(
-            reply,
-            "outcome_unknown",
-            `No durable effect yet for this intent; the dispatch window is still open (cutoff ${UNKNOWN_OUTCOME_CUTOFF_SECONDS}s after creation). Retry reconcile after the cutoff.`
-          );
-        }
-        await client.query(
-          `UPDATE action_intents SET state = 'refused',
-             last_outcome_detail = $2, updated_at = now() WHERE id = $1`,
-          [
-            id,
-            `No durable simulation effect found after the ${UNKNOWN_OUTCOME_CUTOFF_SECONDS}s dispatch window; treated as refused.`,
-          ]
+        const ageSeconds = age.rows[0]?.age_seconds ?? 0;
+        await client.query("ROLLBACK");
+        return sendError(
+          reply,
+          "outcome_unknown",
+          `No durable simulation effect for this exact operation (intent age ${ageSeconds}s). ` +
+            `Missing evidence stays unknown regardless of age; a late effect still reconciles to success. Never blindly retry.`
         );
-        await recordAudit(client, {
-          workspaceId,
-          actorUserId: auth.session.userId,
-          operation: "action.reconcile",
-          entityType: "action_intent",
-          entityId: id,
-          prevState: "unknown",
-          newState: "refused",
-        });
       }
       await emitUpdate(client, workspaceId, "action", id);
       await client.query("COMMIT");

@@ -103,16 +103,6 @@ export class NullWriteAdapter {
 
 export type SimulatedOutcome = "succeeded" | "unknown";
 
-/**
- * Dispatch window for the simulated submit protocol. A `submitting` intent
- * whose admitted attempt stalls mid-flight could persist its effect late, so
- * reconcile only declares `refused` (no durable effect) after this many
- * seconds past intent creation. Attempts complete in milliseconds; the window
- * bounds pathological stalls, and the effect lookup itself stays
- * authoritative: an effect found at any time reconciles to success.
- */
-export const UNKNOWN_OUTCOME_CUTOFF_SECONDS = 60;
-
 export interface SimulationCall {
   operationKey: string;
   action: string;

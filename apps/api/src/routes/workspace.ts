@@ -221,6 +221,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       );
       const received = Number(c.received);
       const evaluated = Number(c.evaluated);
+      const skipped = Number(c.skipped);
       const classified = Number(c.classified);
       const awaiting = Number(c.awaiting);
       const failed = Number(c.failed);
@@ -238,8 +239,8 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
             : awaiting > 0
               ? `${awaiting} event(s) awaiting classification; queue handoff is not completion.`
               : queueDepth > 0
-                ? `Processing: ${queueDepth} event(s) handed to the queue, awaiting worker pickup.`
-                : "Up to date: all received events evaluated (fake deterministic classifier).";
+                ? `Processing: ${queueDepth} event(s) pending confirmed handoff to the queue.`
+                : `Up to date: ${classified} classified, ${skipped} skipped observations (fake deterministic classifier).`;
       const health: Health = {
         workspaceId,
         mode: w.mode,
@@ -255,7 +256,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         receivedEvents: received,
         deduplicatedDeliveries: Math.max(0, dedup),
         evaluatedEvents: evaluated,
-        skippedEvents: Number(c.skipped),
+        skippedEvents: skipped,
         classifiedEvents: classified,
         awaitingProcessing: awaiting,
         failedEvents: failed,
