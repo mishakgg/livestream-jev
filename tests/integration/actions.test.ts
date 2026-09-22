@@ -354,9 +354,12 @@ describe("human-approved simulated actions", () => {
     const executor = new SimulationExecutor();
     const recovered = await runDispatch(intent.id, executor);
     expect(recovered.status).toBe("recovered");
-    expect(recovered.state).toBe("succeeded");
-    expect(executor.callCount).toBe(0); // reconcile reads; never submits
+    // No durable effect was recorded before the crash, so the outcome is
+    // unestablished: recovery preserves unknown (never claims succeeded).
+    expect(recovered.state).toBe("unknown");
+    expect(executor.callCount).toBe(0); // recovery reads evidence; never submits
     expect(await dbCount("action_attempts", "WHERE intent_id = $1", [intent.id])).toBe(1);
+    expect(await dbCount("simulated_effects", "WHERE intent_id = $1", [intent.id])).toBe(0);
   });
 
   it("Preview refuses every write path with zero executor calls", async () => {
