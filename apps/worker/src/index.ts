@@ -3,6 +3,7 @@ import PgBoss from "pg-boss";
 import { getPool, closePool } from "@livestream/db";
 import { SimulationExecutor } from "@livestream/platforms";
 import { dispatchAction, processEvent } from "./pipeline.js";
+import { startWithRetry } from "./startup.js";
 
 const PROCESS_QUEUE = "m0-process-event";
 const DISPATCH_QUEUE = "m0-dispatch-action";
@@ -13,9 +14,33 @@ async function main(): Promise<void> {
   const pool = getPool(connectionString);
   const executor = new SimulationExecutor();
 
-  const boss = new PgBoss({ connectionString, max: 4 });
-  boss.on("error", (err) => console.error("[worker] pgboss error", err));
-  await boss.start();
+  // Bounded start retries: the database may not exist yet when the worker
+  // boots (e2e global setup provisions it concurrently; compose orders the
+  // same way). Each attempt uses a fresh instance so a failed start leaves
+  // no half-open state behind.
+  const boss = await startWithRetry(
+    {
+      attempts: 60,
+      delayMs: 1000,
+      onAttemptFailed: (attempt, err) =>
+        console.error(`[worker] pg-boss start failed (attempt ${attempt}/60), retrying`, err),
+    },
+    async () => {
+      const candidate = new PgBoss({ connectionString, max: 4 });
+      candidate.on("error", (err) => console.error("[worker] pgboss error", err));
+      try {
+        await candidate.start();
+        return candidate;
+      } catch (err) {
+        try {
+          await candidate.stop();
+        } catch {
+          // Best-effort cleanup of the failed instance; the retry matters.
+        }
+        throw err;
+      }
+    }
+  );
   await boss.createQueue(PROCESS_QUEUE);
   await boss.createQueue(DISPATCH_QUEUE);
 
