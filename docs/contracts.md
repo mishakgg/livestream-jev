@@ -47,7 +47,7 @@ proposed → awaiting_approval → queued → submitting
                    queued → cancelled / superseded / expired / refused
 ```
 
-Automatic eligible actions may bypass awaiting_approval only under an already approved, current rule. Preview proposals never enter a dispatchable queue. Replay operations use a separate simulation ledger and adapter. `succeeded` requires a provider-confirmed result; a reconciliation event can confirm the desired state without falsely attributing who caused it. `handled_elsewhere` belongs in outcome metadata.
+Automatic eligible actions may bypass awaiting_approval only under an already approved, current rule. Preview proposals never enter a dispatchable queue. Replay operations use a separate simulation adapter and a durable simulated-effects ledger: the executor is a pure scenario oracle, and `succeeded` requires a persisted, exactly-bound effect row — never an oracle claim or a target-name match. Recovery never re-executes; `unknown` reconciles from that ledger (success only with a matching row, refused only past the dispatch window). A reconciliation event can confirm the desired state without falsely attributing who caused it. `handled_elsewhere` belongs in outcome metadata.
 
 Do not resubmit an unknown action unless an operation-specific reconciliation establishes non-application and current authorization still allows it. Permanent failures are not retryable. Record approved timeout length in seconds and never rederive it from model text.
 

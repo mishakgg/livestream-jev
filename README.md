@@ -13,12 +13,12 @@ What works now (tested, see [Testing](#verification)):
 - Deterministic synthetic replay through durable intake, deduplication, bounded context, incident grouping, policy evaluation, and persisted action intents — no dashboard fixtures.
 - Usable moderator inbox (stable priority list), evidence detail with bounded context, claim/release/dismiss/resolve workflow, policy preview + versioned save, health/coverage states, and a compact chat-reported stream-problem card.
 - Unmistakable Demo environment with two isolated workspaces (`demo-alpha`, `demo-beta`) and seeded identities.
-- Preview (zero writes, enforced and tested) plus an explicit demo Assist transition enabling human-approved **simulated** delete/timeout actions through a simulation-only executor and ledger.
+- Preview (zero writes, enforced and tested) plus an explicit demo Assist transition enabling human-approved **simulated** delete/timeout actions through a simulation-only executor. Dispatch admission shares one atomic authority fence with pause/mode/policy changes, and success is reported only from durable persisted evidence.
 
 What is simulated (never a live action):
 
 - Classification is a deterministic fake (`fake-deterministic`); it proves pipeline behavior, never model quality.
-- All action outcomes come from the simulation ledger; unknown outcomes reconcile from the ledger, never by blind retry.
+- The simulation executor is a pure scenario oracle: it claims outcomes but proves nothing. Only a persisted, exactly-bound `simulated_effects` row counts as evidence of application. Unknown outcomes reconcile from that evidence (success only with a matching row; refused only past the dispatch window), never by blind retry or target-name matching.
 
 What is blocked / not yet built:
 
@@ -89,7 +89,7 @@ Pinned releases (see lockfile): TypeScript 5.6, React 18.3, Vite 5.4, Fastify 4.
 | `npm run lint` | ESLint, zero warnings |
 | `npm run typecheck` | Strict `tsc --noEmit` per workspace |
 | `npm run test` | Unit tests (contracts, domain, classifier, adapters) |
-| `npm run test:integration` | Real-PostgreSQL integration: duplicates, races, stale approvals, restart recovery, unknown outcomes, injection, Preview zero-write |
+| `npm run test:integration` | Real-PostgreSQL integration: duplicates, authority-fence races (pause/mode/policy vs dispatch), stale approvals, crash-window recovery from durable evidence, unknown/reconcile/refused outcomes, truthful coverage, injection, Preview zero-write |
 | `npm run test:e2e` | Playwright browser journey: replay → grouped incident → claim → simulated action → refresh recovery, plus isolation/escaping checks |
 | `npm run build` | All workspaces compile/bundle |
 | `npm run check:docs` | Markdown links, required scripts, status markers |
